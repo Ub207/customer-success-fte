@@ -1,0 +1,23 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# This git repository is rooted at your HOME directory (C:\Users\Hp).
+# That is unusual and dangerous: a plain `git add .` here would try to stage your
+# ENTIRE home folder — including secrets such as .git-credentials, .aws/ tokens,
+# and .claude.json — into a repo that pushes to a public GitHub remote.
+#
+# To prevent that, we ignore EVERYTHING by default and then explicitly re-include
+# only the project this repo is meant to track (Desktop/hackathon-5).
+#
+# To start tracking something new, add a `!/path` exception — remembering to
+# un-ignore each parent directory, exactly as done for Desktop/hackathon-5 below.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# 1) Ignore every top-level entry in the home directory.
+/*
+
+# 2) Keep this .gitignore file itself trackable.
+!/.gitignore
+
+# 3) Re-include ONLY Desktop/hackathon-5 (the project this repo tracks).
+!/Desktop/
+/Desktop/*
+!/Desktop/hackathon-5/
