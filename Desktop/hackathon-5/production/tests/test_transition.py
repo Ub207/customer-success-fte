@@ -548,9 +548,11 @@ class TestInfrastructureMigration:
 
         content = form_path.read_text()
         # Must export SupportForm as default or named export
-        assert "export default SupportForm" in content or "export { SupportForm" in content, (
-            "SupportForm.jsx must have a default or named export"
-        )
+        assert (
+            "export default SupportForm" in content or 
+            "export { SupportForm" in content or
+            "export default function SupportForm" in content
+        ), "SupportForm.jsx must have a default or named export"
         # Must accept apiUrl prop (not hardcoded URL)
         assert "apiUrl" in content, (
             "SupportForm.jsx must accept apiUrl prop for embeddability"

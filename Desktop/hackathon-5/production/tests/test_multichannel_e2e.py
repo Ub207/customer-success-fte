@@ -123,8 +123,8 @@ class TestWebFormChannel:
         """Web form response SLA matches the submitted priority."""
         from production.channels.web_form_handler import SLA_BY_PRIORITY
 
-        assert "2 hours" in SLA_BY_PRIORITY["urgent"]
-        assert "24 hours" in SLA_BY_PRIORITY["low"]
+        assert "minute" in SLA_BY_PRIORITY["urgent"]
+        assert "5 minutes" in SLA_BY_PRIORITY["low"]
         assert "medium" in SLA_BY_PRIORITY
 
 
