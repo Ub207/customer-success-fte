@@ -16,14 +16,14 @@ GEMINI_KEY = os.getenv("GEMINI_API_KEY", "")
 OPENAI_KEY = os.getenv("OPENAI_API_KEY", "")
 
 if GROQ_KEY and not GROQ_KEY.startswith("APNI"):
-    print("Provider: Groq (llama-3.3-70b) — FREE")
+    print("Provider: Groq (openai/gpt-oss-120b) — FREE")
     client = AsyncOpenAI(
         api_key=GROQ_KEY,
         base_url="https://api.groq.com/openai/v1",
         timeout=60.0,
         max_retries=2,
     )
-    MODEL  = "llama-3.3-70b-versatile"
+    MODEL  = "openai/gpt-oss-120b"
 elif GEMINI_KEY and not GEMINI_KEY.startswith("APNI"):
     print("Provider: Google Gemini (gemini-1.5-flash) — FREE")
     client = AsyncOpenAI(api_key=GEMINI_KEY, base_url="https://generativelanguage.googleapis.com/v1beta/openai/")

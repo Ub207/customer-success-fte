@@ -3,7 +3,7 @@ Customer Success FTE — OpenAI Agents SDK agent definition.
 
 Provider priority (first key found wins):
   OPENAI_API_KEY  → GPT-4o  (paid)
-  GROQ_API_KEY    → llama-3.3-70b-versatile via Groq (free tier)
+  GROQ_API_KEY    → openai/gpt-oss-120b via Groq (free tier)
   GEMINI_API_KEY  → gemini-1.5-flash via Google AI Studio (free tier)
 
 The agent is initialized lazily on the first call to run_agent() so that
@@ -55,13 +55,13 @@ def _build_model():
         return "gpt-4o"
 
     if groq_key:
-        logger.info("Agent provider: Groq (llama-3.3-70b-versatile) — free tier")
+        logger.info("Agent provider: Groq (openai/gpt-oss-120b) — free tier")
         client = AsyncOpenAI(
             api_key=groq_key,
             base_url="https://api.groq.com/openai/v1",
         )
         return OpenAIChatCompletionsModel(
-            model="llama-3.3-70b-versatile",
+            model="openai/gpt-oss-120b",
             openai_client=client,
         )
 
