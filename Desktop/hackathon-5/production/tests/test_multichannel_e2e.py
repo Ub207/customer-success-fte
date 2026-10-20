@@ -213,6 +213,23 @@ class TestWhatsAppChannel:
         from fastapi.testclient import TestClient
         from production.api.main import app
 
+        # Sign the request the way Twilio does, so the endpoint
+        # authenticates it the same way it would in production.
+        from production.channels.webhook_security import _twilio_signature
+
+        form_data = {
+            "MessageSid": "SM123",
+            "From": "whatsapp:+1234567890",
+            "To": "whatsapp:+14155238886",
+            "Body": "Hi how do I add team members?",
+            "NumMedia": "0",
+        }
+        import os
+        auth_token = os.environ.get("TWILIO_AUTH_TOKEN", "")
+        webhook_url = os.environ.get("WEBHOOK_BASE_URL", "") or "http://testserver"
+        webhook_url = webhook_url.rstrip("/") + "/webhooks/whatsapp"
+        signature = _twilio_signature(webhook_url, form_data, auth_token) if auth_token else ""
+
         with patch("production.channels.whatsapp_handler.WhatsAppHandler.process_webhook",
                    new_callable=AsyncMock,
                    return_value={
@@ -225,14 +242,11 @@ class TestWhatsAppChannel:
             # Simulate Twilio form-encoded webhook
             response = client.post(
                 "/webhooks/whatsapp",
-                data={
-                    "MessageSid": "SM123",
-                    "From": "whatsapp:+1234567890",
-                    "To": "whatsapp:+14155238886",
-                    "Body": "Hi how do I add team members?",
-                    "NumMedia": "0",
+                data=form_data,
+                headers={
+                    "Content-Type": "application/x-www-form-urlencoded",
+                    "X-Twilio-Signature": signature,
                 },
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
 
         assert response.status_code == 200

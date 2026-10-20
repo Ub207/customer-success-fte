@@ -164,6 +164,19 @@ async def gmail_webhook(request: Request):
     Decodes the notification, fetches new messages, publishes each to Kafka.
     """
     try:
+        # Pub/Sub pushes are public endpoints. The shared token configured
+        # on the subscription is the only thing separating real Gmail
+        # notifications from forged ones.
+        expected_token = os.environ.get("PUBSUB_VERIFICATION_TOKEN", "")
+        if expected_token:
+            from production.channels.webhook_security import (
+                validate_pubsub_token,
+            )
+            authorization = request.headers.get("Authorization", "")
+            if not validate_pubsub_token(authorization, expected_token):
+                logger.warning("Rejected Gmail webhook with invalid token")
+                raise HTTPException(status_code=403, detail="Invalid token")
+
         body = await request.json()
         pubsub_message = body.get("message", {})
         data = pubsub_message.get("data", "")
@@ -202,6 +215,8 @@ async def gmail_webhook(request: Request):
 
     except Exception as e:
         logger.error("Gmail webhook error", error=str(e))
+        if isinstance(e, HTTPException):
+            raise
         raise HTTPException(status_code=500, detail=str(e))
 
 

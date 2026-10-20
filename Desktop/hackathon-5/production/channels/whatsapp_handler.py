@@ -134,6 +134,29 @@ async def whatsapp_webhook(request: Request):
         def get(key: str) -> str:
             return params.get(key, [""])[0]
 
+        # Twilio signs every request with the account auth token. Without
+        # this check anyone could POST fake messages into the pipeline.
+        auth_token = os.environ.get("TWILIO_AUTH_TOKEN", "")
+        if auth_token:
+            from production.channels.webhook_security import (
+                validate_twilio_signature,
+            )
+            signature = request.headers.get("X-Twilio-Signature", "")
+            webhook_url = os.environ.get("WEBHOOK_BASE_URL", "")
+            if webhook_url:
+                webhook_url = webhook_url.rstrip("/") + "/webhooks/whatsapp"
+            else:
+                webhook_url = str(request.url)
+            flat_params = {k: v[0] for k, v in params.items()}
+            if not validate_twilio_signature(
+                webhook_url, flat_params, signature, auth_token
+            ):
+                logger.warning(
+                    "Rejected WhatsApp webhook with invalid signature",
+                    sid=get("MessageSid"),
+                )
+                raise HTTPException(status_code=403, detail="Invalid signature")
+
         form_data = {
             "MessageSid":  get("MessageSid"),
             "From":        get("From"),
@@ -166,6 +189,8 @@ async def whatsapp_webhook(request: Request):
 
     except Exception as e:
         logger.error("WhatsApp webhook error", error=str(e))
+        if isinstance(e, HTTPException):
+            raise
         raise HTTPException(status_code=500, detail=str(e))
 
 
