@@ -86,8 +86,40 @@ src/mcp_server.py                 production/agent/
 - **Embeddable Web Form** — drop `<SupportForm apiUrl="..." />` into any React app
 - **Signed Webhooks** — Twilio `X-Twilio-Signature` and Pub/Sub bearer-token verification on every inbound push
 - **Daily Sentiment Report** — `GET /reports/daily-sentiment` with hourly trend data
+- **Self-Learning Knowledge Base** — resolved tickets are promoted into KB articles so the next similar question is answered instantly
+- **Chaos-Tested** — 24-hour multi-channel harness with pod kills and SLA scoring
 - **Kubernetes Ready** — HPA auto-scales 2 → 10 pods when CPU > 70%
 - **Structured Logging** — structlog JSON logs for all services
+
+---
+
+## Self-Learning Knowledge Base
+
+The agent gets better at the questions it has already answered. When a ticket
+is resolved without escalation, the reply that worked is promoted into the
+knowledge base, so the next customer asking a similar question gets an
+instant answer instead of a `knowledge_gap` escalation.
+
+```
+resolved ticket → question + verified answer → knowledge_base article
+```
+
+Three rules keep this from poisoning the knowledge base:
+
+1. **Only resolved, non-escalated tickets qualify.** An escalated ticket was
+   never actually answered by the agent, so its reply is not a verified answer.
+2. **A quality gate applies.** Short answers, apologies, and handoffs to a
+   human are all rejected.
+3. **No duplicates.** A question that already has a learned article is
+   skipped rather than added twice.
+
+Learned articles are stored with the `learned` category so they can be
+reviewed or purged separately from the curated articles. The worker runs
+hourly as a Kubernetes CronJob, and on demand:
+
+```bash
+python -m production.workers.knowledge_learning
+```
 
 ---
 
@@ -104,7 +136,7 @@ src/mcp_server.py                 production/agent/
 | Web Form | Next.js 14 + React + Tailwind CSS |
 | Deployment | Docker + Kubernetes (HPA) |
 | Logging | structlog (structured JSON) |
-| Testing | pytest (173 tests) + Locust (load testing) |
+| Testing | pytest (219 tests) + Locust (load testing) |
 
 ---
 
@@ -151,7 +183,8 @@ hackathon-5/
     │   ├── response_delivery.py      # Sends replies back to customer
     │   ├── ticket_lifecycle.py       # Manages ticket status transitions
     │   ├── metrics_collector.py      # Collects stats every 5 minutes
-    │   └── daily_report.py           # Generates daily sentiment report
+    │   ├── daily_report.py           # Generates daily sentiment report
+    │   └── knowledge_learning.py     # Turns resolved tickets into KB articles
     │
     ├── database/
     │   ├── schema.sql                # 8 tables + pgvector (10 in a migrated DB)
@@ -180,17 +213,21 @@ hackathon-5/
     │   ├── deployment-worker.yaml
     │   ├── hpa.yaml                  # Auto-scale: 2 → 10 pods at 70% CPU
     │   ├── cronjob-daily-reporter.yaml
+    │   ├── cronjob-knowledge-learning.yaml
     │   ├── ingress.yaml
     │   └── secrets.yaml
     │
     ├── tests/
-    │   ├── test_agent.py             # 13 agent unit tests
-    │   ├── test_channels.py          # 10 channel handler tests
+    │   ├── test_agent.py             # 32 agent unit tests
+    │   ├── test_channels.py          # 14 channel handler tests
     │   ├── test_webhook_security.py   # 16 webhook signature tests
-    │   ├── test_k8s_manifests.py      # 56 manifest validation tests
-    │   ├── test_multichannel_e2e.py  # 18 end-to-end flow tests
+    │   ├── test_k8s_manifests.py      # 59 manifest validation tests
+    │   ├── test_knowledge_learning.py # 21 learning loop tests
+    │   ├── test_chaos_test.py        # 22 chaos harness scoring tests
+    │   ├── test_multichannel_e2e.py  # 15 end-to-end flow tests
     │   ├── test_transition.py        # 40 Stage 1→2 migration tests
-    │   └── load_test.py              # Locust: 100 concurrent users
+    │   ├── load_test.py              # Locust: 100 concurrent users
+    │   └── chaos_test.py             # 24-hour chaos harness
     │
     ├── kafka_client.py               # Kafka producer/consumer (SASL/SSL support)
     ├── logging_config.py             # Structured JSON logging
@@ -446,7 +483,7 @@ containers and the host can reach the broker:
 ## Test Results
 
 ```
-Total: 173/173 passing (100%)
+Total: 219/219 passing (100%)
 ```
 
 | Test File | Tests | Status |
@@ -456,7 +493,9 @@ Total: 173/173 passing (100%)
 | `test_channels.py` | 14 | 14/14 passing |
 | `test_multichannel_e2e.py` | 15 | 15/15 passing |
 | `test_webhook_security.py` | 16 | 16/16 passing |
-| `test_k8s_manifests.py` | 56 | 56/56 passing |
+| `test_k8s_manifests.py` | 59 | 59/59 passing |
+| `test_knowledge_learning.py` | 21 | 21/21 passing |
+| `test_chaos_test.py` | 22 | 22/22 passing |
 | `load_test.py` | — | Locust — 100 concurrent users |
 
 ### Run tests
@@ -535,6 +574,22 @@ pip install locust
 locust -f production/tests/load_test.py --host=http://localhost:8000
 # Open http://localhost:8089 — set 100 users, 10 spawn rate
 ```
+
+### 24-hour chaos test
+
+```bash
+# Smoke run (1 hour)
+python -m production.tests.chaos_test --duration 3600
+
+# Full challenge with pod kills (needs kubectl and a cluster)
+python -m production.tests.chaos_test --duration 86400 --chaos \\
+  --output chaos_report.json
+```
+
+Drives traffic across all three channels while killing pods, then scores the
+run against the challenge targets: uptime > 99.9%, P95 latency < 3s,
+escalation rate < 25%, cross-channel identification > 95%, and no message
+loss. Exits non-zero if any target is missed.
 
 ---
 
