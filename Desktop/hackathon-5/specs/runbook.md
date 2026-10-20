@@ -385,6 +385,84 @@ kubectl -n fte-production exec -it postgres-0 -- \
 
 ---
 
+### 3.8 Running the 24-Hour Chaos Test
+
+**Severity:** Scheduled validation, not an incident. Use this before claiming the
+system is ready for production, and after any change to the deployment topology.
+
+**Background:**
+
+The final hackathon challenge requires the FTE to survive a 24-hour continuous
+run across all three channels while pods are killed underneath it, and to hold
+a set of service level targets:
+
+| Target | Value |
+|--------|-------|
+| Web form submissions | 100+ over 24 hours |
+| Email messages processed | 50+ |
+| WhatsApp messages processed | 50+ |
+| Cross-channel customers | 10+ |
+| Pod kills | random, every 2 hours |
+| Uptime | > 99.9% |
+| P95 latency | < 3 seconds, all channels |
+| Escalation rate | < 25% |
+| Cross-channel identification | > 95% |
+| Message loss | none |
+
+**Run it:**
+
+```bash
+# Smoke run (1 hour) against a local stack
+python -m production.tests.chaos_test --duration 3600
+
+# Full 24-hour challenge with pod kills
+python -m production.tests.chaos_test --duration 86400 --chaos \
+  --output chaos_report.json
+```
+
+The harness writes a JSON report and exits non-zero if any target is missed.
+
+**Prerequisites:**
+
+- The API and worker must be running and reachable at `--base-url`.
+- For `--chaos`, `kubectl` must be on the PATH with a working context, and the
+  worker pods must carry the `app=fte-worker` label in namespace
+  `fte-production`.
+- For signed WhatsApp traffic, pass `--twilio-auth-token` and
+  `--webhook-base-url` so the harness signs requests the way Twilio does.
+
+**Response Steps:**
+
+1. If the run reports a failed check, read the `checks` block in the JSON
+   report before changing anything.
+2. `uptime_percent` below target with `chaos_kill_failures` above zero means
+   kubectl could not delete pods — the run did not actually test chaos. Fix
+   the kubectl context and re-run rather than treating it as a system fault.
+3. `p95_latency_seconds` above target usually means the agent's own latency
+   dominates. Check provider rate limits and the worker replica count.
+4. `escalation_rate_percent` above target means the agent is failing to
+   resolve routine questions. Check the knowledge base seeding and the
+   escalation triggers in the system prompt.
+5. `no_message_loss` above zero is the most serious failure. Compare the
+   submitted count against the conversation count in the database:
+   ```sql
+   SELECT source_channel, COUNT(*)
+   FROM conversations
+   WHERE started_at > NOW() - INTERVAL '24 hours'
+   GROUP BY source_channel;
+   ```
+   A shortfall points at the Kafka consumer group or the dead-letter queue.
+   Check `fte.dlq` for messages that were dropped after repeated failures.
+
+**Verify the worker recovered after a pod kill:**
+
+```bash
+kubectl -n fte-production get pods -l app=fte-worker
+kubectl -n fte-production logs -l app=fte-worker --tail=50
+```
+
+---
+
 ## 4. Runbook Commands Reference
 
 ### Health Checks
