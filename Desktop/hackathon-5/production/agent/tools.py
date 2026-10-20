@@ -322,5 +322,6 @@ async def send_response(input: ResponseInput) -> dict:
         "channel":         input.channel,
         "customer_id":     input.customer_id,
         "ticket_id":       input.ticket_id,
+        "message":         formatted,
         "message_preview": formatted[:120],
     }

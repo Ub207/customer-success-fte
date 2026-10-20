@@ -317,3 +317,81 @@ class TestAgentFormatsWhatsAppConcisely:
         )
 
         assert "human" in formatted.lower()
+
+
+class TestAgentResultExtraction:
+    """
+    Regression tests for the Agent SDK result-parsing bugs.
+
+    The SDK reports executed tool calls on ``RunResult.new_items`` and
+    serialises tool results as a Python-repr string, not JSON. Parsing the
+    wrong shape silently produced empty tool_calls, a missing ticket_id and
+    a meta-comment instead of the customer's actual reply.
+    """
+
+    def test_parse_tool_output_handles_python_repr(self):
+        """Tool results arrive as a Python repr string, not JSON."""
+        from production.agent.customer_success_agent import _parse_tool_output
+
+        raw = "{'status': 'sent', 'ticket_id': 'abc-123', 'message': 'Hi there'}"
+        parsed = _parse_tool_output(raw)
+
+        assert parsed["status"] == "sent"
+        assert parsed["ticket_id"] == "abc-123"
+        assert parsed["message"] == "Hi there"
+
+    def test_parse_tool_output_handles_json_string(self):
+        """A JSON-serialised tool result must also parse."""
+        from production.agent.customer_success_agent import _parse_tool_output
+
+        parsed = _parse_tool_output('{"status": "sent", "ticket_id": "xyz"}')
+
+        assert parsed["ticket_id"] == "xyz"
+
+    def test_parse_tool_output_ignores_garbage(self):
+        """Unparseable output must not raise."""
+        from production.agent.customer_success_agent import _parse_tool_output
+
+        assert _parse_tool_output("not a dict at all") == {}
+        assert _parse_tool_output(None) == {}
+
+    def test_tool_calls_extracted_from_new_items(self):
+        """Tool names must be read from new_items, not result.messages."""
+        from production.agent.customer_success_agent import _parse_tool_output
+
+        class _Raw:
+            type = "function_call"
+            name = "create_ticket"
+            call_id = "fc_1"
+
+        class _Item:
+            raw_item = _Raw()
+
+        class _OutRaw(dict):
+            pass
+
+        output_raw = {"type": "function_call_output", "call_id": "fc_1",
+                      "output": "{'ticket_id': '11111111-2222-3333-4444-555555555555'}"}
+
+        class _OutItem:
+            raw_item = output_raw
+
+        items = [_Item(), _OutItem()]
+
+        call_names = {}
+        for item in items:
+            raw = item.raw_item
+            if isinstance(raw, dict):
+                name, call_id = raw.get("name"), raw.get("call_id")
+            else:
+                name, call_id = getattr(raw, "name", None), getattr(raw, "call_id", None)
+            if name:
+                call_names[call_id] = name
+
+        assert call_names["fc_1"] == "create_ticket"
+
+        for item in items:
+            raw = item.raw_item
+            if isinstance(raw, dict):
+                if raw.get("type") == "function_call_output":
+                    assert _parse_tool_output(raw["output"])["ticket_id"].startswith("1111")

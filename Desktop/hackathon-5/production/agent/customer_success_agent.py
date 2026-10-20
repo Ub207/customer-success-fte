@@ -10,6 +10,8 @@ The agent is initialized lazily on the first call to run_agent() so that
 environment variables are guaranteed to be loaded before model selection.
 """
 
+import ast
+import json
 import os
 import time
 import structlog
@@ -156,23 +158,87 @@ async def run_agent(message: str, context: dict) -> dict:
 
         latency_ms = int((time.monotonic() - start) * 1000)
 
-        # Extract tool calls and detect escalation
+        # Extract tool calls and detect escalation.
+        # The SDK exposes executed tool calls on `new_items` as ToolCallItem
+        # instances (`.name` holds the tool name). Older SDK builds exposed
+        # `result.messages[*].tool_calls`; support both shapes.
         tool_calls = []
         escalated  = False
         ticket_id  = None
+        reply_text = None
 
-        if hasattr(result, "messages"):
-            for msg in result.messages:
-                if hasattr(msg, "tool_calls") and msg.tool_calls:
-                    for tc in msg.tool_calls:
-                        name = tc.function.name if hasattr(tc, "function") else str(tc)
-                        tool_calls.append(name)
-                        if name == "escalate_to_human":
-                            escalated = True
+        # Map call_id -> tool name so outputs can be attributed to their tool.
+        call_names = {}
+        items = list(getattr(result, "new_items", []) or [])
+
+        for item in items:
+            raw = getattr(item, "raw_item", None)
+            if isinstance(raw, dict):
+                name = raw.get("name")
+                call_id = raw.get("call_id")
+            else:
+                name = getattr(item, "name", None) or getattr(raw, "name", None)
+                call_id = getattr(raw, "call_id", None)
+            if name:
+                tool_calls.append(name)
+                if call_id:
+                    call_names[call_id] = name
+
+        # Tool outputs carry the data the tools produced (ticket id, the
+        # final customer-facing message). The agent's final_output is often
+        # just a meta-comment ("The response has been sent..."), so the real
+        # reply has to come from the send_response tool result.
+        for item in items:
+            raw = getattr(item, "raw_item", None)
+            if raw is None:
+                continue
+            # raw_item is a pydantic model for call items but a plain dict
+            # for function_call_output items.
+            if isinstance(raw, dict):
+                item_type = raw.get("type")
+                call_id = raw.get("call_id")
+                output = raw.get("output")
+            else:
+                item_type = getattr(raw, "type", None)
+                call_id = getattr(raw, "call_id", None)
+                output = getattr(raw, "output", None)
+            if item_type != "function_call_output":
+                continue
+            tool_name = call_names.get(call_id)
+            if tool_name is None:
+                continue
+            if output is None:
+                output = getattr(item, "output", None)
+            parsed = _parse_tool_output(output)
+            if not isinstance(parsed, dict):
+                continue
+            if tool_name == "create_ticket" and parsed.get("ticket_id"):
+                ticket_id = parsed["ticket_id"]
+            elif tool_name == "send_response":
+                escalated = escalated  # keep as-is; send_response is not an escalation
+                if parsed.get("message"):
+                    reply_text = parsed["message"]
+                elif parsed.get("message_preview"):
+                    reply_text = parsed["message_preview"]
+                if parsed.get("ticket_id"):
+                    ticket_id = parsed["ticket_id"]
+
+        for msg in getattr(result, "messages", []) or []:
+            for tc in getattr(msg, "tool_calls", None) or []:
+                name = tc.function.name if hasattr(tc, "function") else str(tc)
+                if name not in tool_calls:
+                    tool_calls.append(name)
+
+        if "escalate_to_human" in tool_calls:
+            escalated = True
 
         final_response = (
             result.final_output if hasattr(result, "final_output") else str(result)
         )
+        # Prefer the message actually sent to the customer over the agent's
+        # closing meta-comment.
+        if reply_text:
+            final_response = reply_text
 
         logger.info(
             "Agent run complete",
@@ -201,6 +267,28 @@ async def run_agent(message: str, context: dict) -> dict:
 # ---------------------------------------------------------------------------
 # Internal helper
 # ---------------------------------------------------------------------------
+
+def _parse_tool_output(output) -> dict:
+    """
+    Best-effort parse of a tool result into a dict.
+
+    The SDK serialises tool results as a Python repr string
+    (single quotes, True/False), not JSON, so ast.literal_eval is tried
+    first and json.loads second.
+    """
+    if isinstance(output, dict):
+        return output
+    if isinstance(output, str):
+        text = output.strip()
+        for parser in (ast.literal_eval, json.loads):
+            try:
+                parsed = parser(text)
+                if isinstance(parsed, dict):
+                    return parsed
+            except (ValueError, TypeError, SyntaxError):
+                continue
+    return {}
+
 
 def _error_response(error: str, latency_ms: int = 0) -> dict:
     return {

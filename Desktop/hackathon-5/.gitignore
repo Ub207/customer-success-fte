@@ -1,6 +1,9 @@
 # Environment — API keys, secrets
 production/.env
+production/.env.local
+production/.env.*.local
 .env
+.env.local
 
 # Node
 node_modules/
@@ -20,6 +23,10 @@ production/venv/
 # Pytest
 .pytest_cache/
 production/tests/__pycache__/
+
+# Local tool settings (personal, not shared)
+.claude/settings.local.json
+**/.claude/settings.local.json
 
 # Logs
 *.log
