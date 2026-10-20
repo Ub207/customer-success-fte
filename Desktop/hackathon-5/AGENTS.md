@@ -24,7 +24,7 @@ production/tests/   pytest suite
 Run all commands from `Desktop/hackathon-5` — code imports as `production.*`.
 
 ```bash
-production/venv/Scripts/python.exe -m pytest -q                    # full suite (81 tests)
+production/venv/Scripts/python.exe -m pytest -q                    # full suite (173 tests)
 production/venv/Scripts/python.exe -m pytest production/tests/test_agent.py -q
 production/venv/Scripts/python.exe -m uvicorn production.api.main:app --port 8000
 production/venv/Scripts/python.exe -m production.workers.message_processor

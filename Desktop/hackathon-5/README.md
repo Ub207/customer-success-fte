@@ -84,6 +84,7 @@ src/mcp_server.py                 production/agent/
 - **Smart Escalation** — auto-routes to billing, legal, security, or senior support with SLA enforcement
 - **Semantic KB Search** — pgvector embeddings for knowledge base lookup
 - **Embeddable Web Form** — drop `<SupportForm apiUrl="..." />` into any React app
+- **Signed Webhooks** — Twilio `X-Twilio-Signature` and Pub/Sub bearer-token verification on every inbound push
 - **Daily Sentiment Report** — `GET /reports/daily-sentiment` with hourly trend data
 - **Kubernetes Ready** — HPA auto-scales 2 → 10 pods when CPU > 70%
 - **Structured Logging** — structlog JSON logs for all services
@@ -103,7 +104,7 @@ src/mcp_server.py                 production/agent/
 | Web Form | Next.js 14 + React + Tailwind CSS |
 | Deployment | Docker + Kubernetes (HPA) |
 | Logging | structlog (structured JSON) |
-| Testing | pytest (88 tests) + Locust (load testing) |
+| Testing | pytest (173 tests) + Locust (load testing) |
 
 ---
 
@@ -142,7 +143,8 @@ hackathon-5/
     ├── channels/                     # Inbound message handlers
     │   ├── gmail_handler.py          # Gmail Pub/Sub webhook
     │   ├── whatsapp_handler.py       # Twilio webhook handler
-    │   └── web_form_handler.py       # Web form submission handler
+    │   ├── web_form_handler.py       # Web form submission handler
+    │   └── webhook_security.py       # Twilio + Pub/Sub signature checks
     │
     ├── workers/                      # Background Kafka consumers
     │   ├── message_processor.py      # Core worker: Kafka → Agent → DB
@@ -184,6 +186,8 @@ hackathon-5/
     ├── tests/
     │   ├── test_agent.py             # 13 agent unit tests
     │   ├── test_channels.py          # 10 channel handler tests
+    │   ├── test_webhook_security.py   # 16 webhook signature tests
+    │   ├── test_k8s_manifests.py      # 56 manifest validation tests
     │   ├── test_multichannel_e2e.py  # 18 end-to-end flow tests
     │   ├── test_transition.py        # 40 Stage 1→2 migration tests
     │   └── load_test.py              # Locust: 100 concurrent users
@@ -311,6 +315,23 @@ Swagger UI: `http://localhost:8000/docs`
 
 ---
 
+## Webhook Authentication
+
+Both inbound webhooks are public HTTP endpoints, so each provider request is
+verified before it is queued. A forged request is rejected with `403` and
+never reaches Kafka.
+
+| Channel | Check | Header |
+|---------|-------|--------|
+| WhatsApp | HMAC-SHA1 of the URL + POST params, keyed with the account auth token | `X-Twilio-Signature` |
+| Gmail | Constant-time bearer token comparison | `Authorization: Bearer <token>` |
+
+Twilio is verified when `TWILIO_AUTH_TOKEN` is set. Gmail is verified when
+`PUBSUB_VERIFICATION_TOKEN` is set. Leave either blank to skip that check —
+intended for local development only.
+
+---
+
 ## Demo — Test All 3 Channels
 
 ### Web Form
@@ -425,15 +446,17 @@ containers and the host can reach the broker:
 ## Test Results
 
 ```
-Total: 88/88 passing (100%)
+Total: 173/173 passing (100%)
 ```
 
 | Test File | Tests | Status |
 |-----------|-------|--------|
 | `test_transition.py` | 40 | 40/40 passing |
-| `test_agent.py` | 13 | 13/13 passing |
-| `test_channels.py` | 10 | 10/10 passing |
-| `test_multichannel_e2e.py` | 18 | 18/18 passing |
+| `test_agent.py` | 32 | 32/32 passing |
+| `test_channels.py` | 14 | 14/14 passing |
+| `test_multichannel_e2e.py` | 15 | 15/15 passing |
+| `test_webhook_security.py` | 16 | 16/16 passing |
+| `test_k8s_manifests.py` | 56 | 56/56 passing |
 | `load_test.py` | — | Locust — 100 concurrent users |
 
 ### Run tests
