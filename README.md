@@ -4,6 +4,29 @@
 
 ---
 
+## Screenshots
+
+### Landing page — the embeddable support form
+
+![Landing page with the support form](Desktop/hackathon-5/docs/screenshots/landing-page.png)
+
+### Web Form channel dashboard
+
+Visualises the whole pipeline end to end — submit, Kafka, AI agent, PostgreSQL,
+SMTP reply, status API — plus the Pydantic validation that ran on submission.
+
+![Web Form channel dashboard](Desktop/hackathon-5/docs/screenshots/webform-dashboard.png)
+
+### WhatsApp channel dashboard
+
+![WhatsApp channel dashboard](Desktop/hackathon-5/docs/screenshots/whatsapp-dashboard.png)
+
+### Gmail channel dashboard
+
+![Gmail channel dashboard](Desktop/hackathon-5/docs/screenshots/gmail-dashboard.png)
+
+---
+
 ## Quick Start
 
 ```bash

@@ -369,6 +369,18 @@ The AI agent has exactly 5 tools and must call them in order:
 
 ---
 
+## Screenshots
+
+| Web Form dashboard | Landing page |
+|--------------------|--------------|
+| ![Web Form dashboard](docs/screenshots/webform-dashboard.png) | ![Landing page](docs/screenshots/landing-page.png) |
+
+The Web Form dashboard shows the whole pipeline: submit → Kafka → AI agent →
+PostgreSQL → SMTP reply → status API, alongside the Pydantic validation that
+ran on the submission.
+
+---
+
 ## Verified End-to-End Flow
 
 The full chain has been run live against a real LLM (Groq `openai/gpt-oss-120b`)
