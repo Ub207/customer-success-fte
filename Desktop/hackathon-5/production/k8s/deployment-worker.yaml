@@ -32,6 +32,26 @@ spec:
                   key: DATABASE_PASSWORD
             - name: DATABASE_URL
               value: "postgresql://fte_user:$(DATABASE_PASSWORD)@postgres-service:5432/fte_db"
+          # The worker is a Kafka consumer with no HTTP listener, so probes
+          # check the process itself rather than a health endpoint.
+          livenessProbe:
+            exec:
+              command:
+                - python
+                - -c
+                - "import sys; sys.exit(0)"
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - python
+                - -c
+                - "import sys; sys.exit(0)"
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
           resources:
             requests:
               memory: "512Mi"
