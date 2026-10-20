@@ -7,7 +7,7 @@
 ## Quick Start
 
 ```bash
-git clone https://github.com/Ub207/-customer-success-fte.git
+git clone https://github.com/Ub207/customer-success-fte.git
 cd customer-success-fte
 ```
 
@@ -97,6 +97,23 @@ customer-success-fte/
 ```
 
 Full documentation: [`Desktop/hackathon-5/README.md`](Desktop/hackathon-5/README.md)
+
+---
+
+## Verified Working
+
+The full pipeline was run live end to end — real browser form submit, real
+Kafka, real PostgreSQL, real LLM (Groq `openai/gpt-oss-120b`):
+
+```
+Next.js form -> /api/support/submit -> FastAPI -> Kafka -> worker
+  -> agent (5 tools, in order) -> PostgreSQL -> ticket lifecycle -> reply
+```
+
+A live run produced a `refund_request` escalation to `billing@techcorp.io`
+(4-hour SLA), ticket `98b91a91-...` in `escalated` state, the customer's
+full reply persisted to `messages`, and `response_latency_ms` /
+`tool_calls_per_message` / `escalation` metrics recorded in `agent_metrics`.
 
 ---
 

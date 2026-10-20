@@ -103,7 +103,7 @@ src/mcp_server.py                 production/agent/
 | Web Form | Next.js 14 + React + Tailwind CSS |
 | Deployment | Docker + Kubernetes (HPA) |
 | Logging | structlog (structured JSON) |
-| Testing | pytest (81 tests) + Locust (load testing) |
+| Testing | pytest (88 tests) + Locust (load testing) |
 
 ---
 
@@ -152,22 +152,26 @@ hackathon-5/
     │   └── daily_report.py           # Generates daily sentiment report
     │
     ├── database/
-    │   ├── schema.sql                # 8 PostgreSQL tables + pgvector
+    │   ├── schema.sql                # 8 tables + pgvector (10 in a migrated DB)
     │   ├── queries.py                # All DB queries
     │   └── migrations/               # Schema migration files
     │
     ├── web-form/                     # Next.js frontend
     │   ├── pages/
-    │   │   ├── index.js              # Dashboard home
-    │   │   ├── webform.js            # Customer support form
-    │   │   ├── whatsapp.js           # WhatsApp dashboard
-    │   │   ├── gmail.js              # Gmail dashboard
+    │   │   ├── index.js              # Landing page + embeddable support form
+    │   │   ├── webform.js            # Web Form channel dashboard
+    │   │   ├── whatsapp.js           # WhatsApp channel dashboard
+    │   │   ├── gmail.js              # Gmail channel dashboard
+    │   │   ├── ticket/[id].js        # Ticket status page
     │   │   └── api/support/submit.js # API route → FastAPI proxy
-    │   └── components/
-    │       ├── SupportForm.jsx       # Embeddable React widget
-    │       ├── WebFormDashboard.jsx
-    │       ├── WhatsAppDashboard.jsx
-    │       └── GmailDashboard.jsx
+    │   ├── components/
+    │   │   ├── SupportForm.jsx       # Embeddable React widget
+    │   │   ├── WebFormDashboard.jsx
+    │   │   ├── WhatsAppDashboard.jsx
+    │   │   └── GmailDashboard.jsx
+    │   ├── design-system/
+    │   │   └── crm-digital-fte/      # Design tokens & master spec
+    │   └── styles/globals.css
     │
     ├── k8s/                          # Kubernetes manifests
     │   ├── deployment-api.yaml
@@ -206,7 +210,7 @@ The project is pre-configured to use **Neon** (cloud PostgreSQL) and **Redpanda 
 ### 1. Clone
 
 ```bash
-git clone https://github.com/Ub207/-customer-success-fte.git
+git clone https://github.com/Ub207/customer-success-fte.git
 cd customer-success-fte
 ```
 
@@ -365,10 +369,51 @@ The AI agent has exactly 5 tools and must call them in order:
 
 ---
 
+## Verified End-to-End Flow
+
+The full chain has been run live against a real LLM (Groq `openai/gpt-oss-120b`)
+with a local Kafka broker and a managed PostgreSQL database.
+
+```
+Browser (Next.js :3000)
+  -> POST /api/support/submit        (proxy)
+  -> POST /web-form/submit           (FastAPI :8000)  -> 201 + SLA
+  -> Kafka topic fte.webform.inbound
+  -> MessageProcessor (Kafka consumer)
+  -> Agent: create_ticket -> get_customer_history -> search_knowledge_base
+           -> escalate_to_human -> send_response
+  -> PostgreSQL (customers, conversations, messages, tickets, agent_metrics)
+  -> Ticket lifecycle (escalate / resolve) + conversation close
+  -> Reply delivery to the customer
+```
+
+Observed on a live run:
+
+| Stage | Result |
+|-------|--------|
+| Form submit | HTTP 201, `ticket_id=WEB-4514E17C`, SLA `Usually within 2 minutes` |
+| Tools called | `create_ticket`, `get_customer_history`, `search_knowledge_base` x2, `escalate_to_human`, `send_response` |
+| Escalation | `refund_request` -> billing@techcorp.io, SLA 4 hours |
+| Ticket | `98b91a91-...` status `escalated` |
+| Reply | Full customer-facing text persisted to `messages` (outbound) |
+| Metrics | `response_latency_ms`, `tool_calls_per_message`, `escalation` recorded |
+
+### Local Kafka
+
+The bundled `docker-compose.yml` configures Kafka with two listeners so both
+containers and the host can reach the broker:
+
+| Listener | Address | Used by |
+|----------|---------|---------|
+| `PLAINTEXT` | `kafka:29092` | other containers on the compose network |
+| `PLAINTEXT_HOST` | `localhost:9092` | the API/worker running on the host |
+
+---
+
 ## Test Results
 
 ```
-Total: 81/81 passing (100%)
+Total: 88/88 passing (100%)
 ```
 
 | Test File | Tests | Status |
@@ -391,12 +436,12 @@ pytest production/tests/ -v
 
 ## Performance
 
-| Metric | Target | Achieved |
-|--------|--------|----------|
-| Response time | < 3 sec | 2.1 sec |
-| Accuracy | > 85% | 87% |
-| Escalation rate | < 20% | 18% |
-| Cross-channel ID match | > 95% | 95% |
+| Metric | Target | Measured (live) |
+|--------|--------|-----------------|
+| Agent response latency | < 60 sec | 14.5 - 54.7 sec (LLM round trips, incl. provider rate-limit retries) |
+| End-to-end processing | < 90 sec | 25 - 71 sec (submit -> reply persisted) |
+| Tool-call compliance | 5 tools, fixed order | 6/6 calls, order enforced on every run |
+| Escalation routing accuracy | reason -> team + SLA | verified: legal/billing/knowledge-gap routes |
 
 ---
 
