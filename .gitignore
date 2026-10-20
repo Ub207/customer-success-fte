@@ -14,8 +14,9 @@
 # 1) Ignore every top-level entry in the home directory.
 /*
 
-# 2) Keep this .gitignore file itself trackable.
+# 2) Keep this .gitignore file and the repo landing README trackable.
 !/.gitignore
+!/README.md
 
 # 3) Re-include ONLY Desktop/hackathon-5 (the project this repo tracks).
 !/Desktop/
