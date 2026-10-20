@@ -395,3 +395,44 @@ class TestAgentResultExtraction:
             if isinstance(raw, dict):
                 if raw.get("type") == "function_call_output":
                     assert _parse_tool_output(raw["output"])["ticket_id"].startswith("1111")
+
+
+class TestResponseFormatterFooter:
+    """The channel footer must not be duplicated when the agent includes it."""
+
+    @pytest.mark.asyncio
+    async def test_web_form_footer_not_duplicated(self):
+        """A response that already has the footer keeps exactly one copy."""
+        from production.agent.formatters import format_for_channel
+
+        body = (
+            "Hi Bilal,\n\nWe are escalating your case.\n\n"
+            "Need more help? Reply to this message or visit support.techcorp.io"
+        )
+        formatted = await format_for_channel(response=body, channel="web_form")
+
+        assert formatted.count("Need more help?") == 1
+
+    @pytest.mark.asyncio
+    async def test_web_form_footer_added_when_missing(self):
+        """A response without the footer still gets one appended."""
+        from production.agent.formatters import format_for_channel
+
+        formatted = await format_for_channel(
+            response="Here is the answer to your question.", channel="web_form"
+        )
+
+        assert formatted.count("Need more help?") == 1
+
+    @pytest.mark.asyncio
+    async def test_whatsapp_footer_not_duplicated(self):
+        """WhatsApp responses keep a single human-escalation footer."""
+        from production.agent.formatters import format_for_channel
+
+        body = (
+            "Your reset link is on its way.\n\n"
+            "Reply for more help or type 'human' for live support."
+        )
+        formatted = await format_for_channel(response=body, channel="whatsapp")
+
+        assert formatted.count("live support") == 1

@@ -99,6 +99,9 @@ def _format_whatsapp(response: str) -> str:
     the standard reply footer. Hard limit is 1600 chars total.
     """
     footer = "\n\nReply for more help or type 'human' for live support."
+    # The agent may already have included the footer; don't add a second copy.
+    if "live support" in response:
+        return response
     available = WHATSAPP_PREFERRED_MAX - len(footer)
 
     if len(response) > available:
@@ -124,6 +127,10 @@ def _format_web_form(response: str) -> str:
         response = " ".join(words[:WEB_FORM_WORD_LIMIT]) + "..."
 
     footer = "\n\n---\nNeed more help? Reply to this message or visit support.techcorp.io"
+    # The agent may already have included the footer in its own text; adding
+    # it twice would show the customer a duplicated sign-off.
+    if "Need more help?" in response:
+        return response
     return response + footer
 
 
