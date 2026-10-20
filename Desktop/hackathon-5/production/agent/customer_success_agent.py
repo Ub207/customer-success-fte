@@ -35,6 +35,25 @@ from production.agent.tools import (
 )
 from production.agent.prompts import CUSTOMER_SUCCESS_SYSTEM_PROMPT
 
+# The five contract tools and the order they must be called in. The system
+# prompt states the same order and the tools are registered in it, but a
+# reasoning model can still deviate - so the order is verified after every
+# run and any violation is logged and reported.
+REQUIRED_TOOL_ORDER = [
+    "create_ticket",
+    "get_customer_history",
+    "search_knowledge_base",
+    "escalate_to_human",
+    "send_response",
+]
+
+# The prompt says to follow steps 1-4 "every single time": create_ticket,
+# get_customer_history and send_response all run on every conversation. The
+# other two are path-dependent - the knowledge base is only consulted for
+# product questions, and escalate_to_human only fires on an escalation
+# trigger, where the model escalates before attempting to answer.
+ALWAYS_REQUIRED_TOOLS = ["create_ticket", "get_customer_history", "send_response"]
+
 # ---------------------------------------------------------------------------
 # Lazy singleton
 # ---------------------------------------------------------------------------
@@ -92,10 +111,13 @@ def _get_agent() -> "Agent":
             name="Customer Success FTE",
             model=_build_model(),
             instructions=CUSTOMER_SUCCESS_SYSTEM_PROMPT,
+            # Registration order mirrors the required call order. The model
+            # sees tools in this order, so keeping it aligned with the
+            # contract makes the agent far more likely to follow it.
             tools=[
-                search_knowledge_base,
                 create_ticket,
                 get_customer_history,
+                search_knowledge_base,
                 escalate_to_human,
                 send_response,
             ],
@@ -129,6 +151,7 @@ async def run_agent(message: str, context: dict) -> dict:
             escalated       (bool)
             tool_calls      (list)  — names of tools called
             latency_ms      (int)
+            tool_order_ok   (bool)  — tools followed the contract order
     """
     if not AGENTS_SDK_AVAILABLE:
         return _error_response("openai-agents SDK not installed")
@@ -232,6 +255,19 @@ async def run_agent(message: str, context: dict) -> dict:
         if "escalate_to_human" in tool_calls:
             escalated = True
 
+        # Verify the required call order. `search_knowledge_base` may repeat
+        # (the prompt allows one retry), so it is collapsed to a single
+        # occurrence before comparing.
+        # Only the tools that actually ran are compared, so a path that
+        # legitimately skips the knowledge base or escalation still passes.
+        order_ok = _check_tool_order(tool_calls)
+        if not order_ok:
+            logger.warning(
+                "Agent tool call order deviated from the contract",
+                expected=REQUIRED_TOOL_ORDER,
+                actual=tool_calls,
+            )
+
         final_response = (
             result.final_output if hasattr(result, "final_output") else str(result)
         )
@@ -256,6 +292,7 @@ async def run_agent(message: str, context: dict) -> dict:
             "escalated":       escalated,
             "tool_calls":      tool_calls,
             "latency_ms":      latency_ms,
+            "tool_order_ok":   order_ok,
         }
 
     except Exception as e:
@@ -267,6 +304,32 @@ async def run_agent(message: str, context: dict) -> dict:
 # ---------------------------------------------------------------------------
 # Internal helper
 # ---------------------------------------------------------------------------
+
+def _check_tool_order(tool_calls: list) -> bool:
+    """
+    Verify the agent followed the tool call contract.
+
+    `create_ticket`, `get_customer_history` and `send_response` run on every
+    conversation, so all three must be present. The knowledge base is only
+    consulted for product questions, and `escalate_to_human` only fires on an
+    escalation trigger, so a path that skips one of them is still valid - but
+    the tools that did run must be in contract order.
+    """
+    collapsed = []
+    for name in tool_calls:
+        if name not in collapsed:
+            collapsed.append(name)
+
+    if not all(name in collapsed for name in ALWAYS_REQUIRED_TOOLS):
+        return False
+
+    positions = [
+        REQUIRED_TOOL_ORDER.index(name)
+        for name in collapsed
+        if name in REQUIRED_TOOL_ORDER
+    ]
+    return positions == sorted(positions)
+
 
 def _parse_tool_output(output) -> dict:
     """

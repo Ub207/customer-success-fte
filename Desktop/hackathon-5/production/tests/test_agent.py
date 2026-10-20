@@ -436,3 +436,111 @@ class TestResponseFormatterFooter:
         formatted = await format_for_channel(response=body, channel="whatsapp")
 
         assert formatted.count("live support") == 1
+
+
+class TestToolCallOrder:
+    """The agent must call its five tools in the documented order."""
+
+    def test_required_order_constant(self):
+        """The contract order is create_ticket first, send_response last."""
+        from production.agent.customer_success_agent import REQUIRED_TOOL_ORDER
+
+        assert REQUIRED_TOOL_ORDER[0] == "create_ticket"
+        assert REQUIRED_TOOL_ORDER[-1] == "send_response"
+        assert len(REQUIRED_TOOL_ORDER) == 5
+
+    def test_correct_order_passes(self):
+        from production.agent.customer_success_agent import _check_tool_order
+
+        actual = ["create_ticket", "get_customer_history", "search_knowledge_base",
+                  "escalate_to_human", "send_response"]
+        assert _check_tool_order(actual) is True
+
+    def test_repeated_search_still_passes(self):
+        """A retried KB search must not break the order check."""
+        from production.agent.customer_success_agent import _check_tool_order
+
+        actual = ["create_ticket", "get_customer_history", "search_knowledge_base",
+                  "search_knowledge_base", "escalate_to_human", "send_response"]
+        assert _check_tool_order(actual) is True
+
+    def test_out_of_order_fails(self):
+        """Searching the KB before creating the ticket violates the contract."""
+        from production.agent.customer_success_agent import _check_tool_order
+
+        actual = ["search_knowledge_base", "create_ticket", "get_customer_history",
+                  "escalate_to_human", "send_response"]
+        assert _check_tool_order(actual) is False
+
+    def test_missing_tool_fails(self):
+        from production.agent.customer_success_agent import _check_tool_order
+
+        actual = ["create_ticket", "send_response"]
+        assert _check_tool_order(actual) is False
+
+    def test_no_escalation_still_passes(self):
+        """A normal conversation never escalates, so it must not be flagged."""
+        from production.agent.customer_success_agent import _check_tool_order
+
+        actual = ["create_ticket", "get_customer_history",
+                  "search_knowledge_base", "send_response"]
+        assert _check_tool_order(actual) is True
+
+    def test_no_knowledge_base_still_passes(self):
+        """Greetings and non-product questions skip the knowledge base."""
+        from production.agent.customer_success_agent import _check_tool_order
+
+        actual = ["create_ticket", "get_customer_history", "send_response"]
+        assert _check_tool_order(actual) is True
+
+    def test_escalation_without_knowledge_base_passes(self):
+        """Pricing escalates immediately, before the KB is consulted."""
+        from production.agent.customer_success_agent import _check_tool_order
+
+        actual = ["create_ticket", "get_customer_history",
+                  "escalate_to_human", "send_response"]
+        assert _check_tool_order(actual) is True
+
+    def test_missing_send_response_fails(self):
+        """The agent must always deliver a reply."""
+        from production.agent.customer_success_agent import _check_tool_order
+
+        actual = ["create_ticket", "get_customer_history", "search_knowledge_base"]
+        assert _check_tool_order(actual) is False
+
+    def test_missing_create_ticket_fails(self):
+        """The interaction must always be logged first."""
+        from production.agent.customer_success_agent import _check_tool_order
+
+        actual = ["get_customer_history", "send_response"]
+        assert _check_tool_order(actual) is False
+
+    def test_missing_customer_history_fails(self):
+        """Prior context is fetched on every conversation."""
+        from production.agent.customer_success_agent import _check_tool_order
+
+        actual = ["create_ticket", "send_response"]
+        assert _check_tool_order(actual) is False
+
+    def test_escalation_after_response_fails(self):
+        """Escalating after the reply breaks the contract order."""
+        from production.agent.customer_success_agent import _check_tool_order
+
+        actual = ["create_ticket", "get_customer_history",
+                  "send_response", "escalate_to_human"]
+        assert _check_tool_order(actual) is False
+
+    def test_tools_registered_in_required_order(self):
+        """Tools must be registered to the agent in the contract order."""
+        from production.agent import customer_success_agent as mod
+
+        agent = mod._get_agent()
+        names = [getattr(t, "name", None) for t in agent.tools]
+
+        assert names == [
+            "create_ticket",
+            "get_customer_history",
+            "search_knowledge_base",
+            "escalate_to_human",
+            "send_response",
+        ]
