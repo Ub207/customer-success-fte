@@ -228,7 +228,10 @@ class MessageProcessor:
                 else:
                     await resolve_ticket(
                         ticket_id,
-                        resolution_notes="Auto-resolved by agent.",
+                        # Keep the reply that actually resolved the issue.
+                        # The knowledge learning worker promotes these into
+                        # knowledge base articles for similar questions.
+                        resolution_notes=response_text,
                     )
                 await close_conversation_after_reply(
                     conversation_id=conversation_id,

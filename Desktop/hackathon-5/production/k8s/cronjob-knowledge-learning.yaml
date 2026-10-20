@@ -1,0 +1,46 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: fte-knowledge-learning
+  namespace: fte-production
+  labels:
+    app: fte-knowledge-learning
+spec:
+  # Runs hourly, after the daily report has settled the previous day's data.
+  schedule: "30 * * * *"
+  concurrencyPolicy: Forbid          # never run two learning passes at once
+  successfulJobsHistoryLimit: 7      # keep last 7 successful runs
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2                # retry up to 2 times on failure
+      template:
+        metadata:
+          labels:
+            app: fte-knowledge-learning
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: fte-knowledge-learning
+              image: customer-success-fte:latest
+              command: ["python", "-m", "production.workers.knowledge_learning"]
+              envFrom:
+                - configMapRef:
+                    name: fte-config
+                - secretRef:
+                    name: fte-secrets
+              env:
+                - name: DATABASE_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: fte-secrets
+                      key: DATABASE_PASSWORD
+                - name: DATABASE_URL
+                  value: "postgresql://fte_user:$(DATABASE_PASSWORD)@postgres-service:5432/fte_db"
+              resources:
+                requests:
+                  memory: "256Mi"
+                  cpu: "200m"
+                limits:
+                  memory: "512Mi"
+                  cpu: "500m"

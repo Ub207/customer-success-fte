@@ -25,6 +25,7 @@ MANIFESTS = [
     "hpa.yaml",
     "postgres-statefulset.yaml",
     "cronjob-daily-reporter.yaml",
+    "cronjob-knowledge-learning.yaml",
     "servicemonitor.yaml",
 ]
 
